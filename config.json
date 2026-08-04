@@ -1,0 +1,181 @@
+{
+  "asset_root": "../情绪范式素材",
+  "background_rgb255": [185, 183, 183],
+  "screen": 0,
+  "camera": {
+    "enabled_by_default": true,
+    "index": 0,
+    "width": 1280,
+    "height": 720,
+    "fps": 60,
+    "codec": "MJPG",
+    "minimum_acceptable_fps": 25,
+    "minimum_free_disk_gb": 40
+  },
+  "integrated_session": {
+    "enabled_by_default": true,
+    "paradigms": ["1", "2", "3"],
+    "target_duration_s": 1800,
+    "expected_rating_s": 8.0,
+    "block_trial_counts": {
+      "1": 6,
+      "2": 30,
+      "3": 20
+    },
+    "rotate_block_order_by_session": false,
+    "prefer_unused_materials": true
+  },
+  "marker": {
+    "pulse_width_s": 0.01,
+    "serial_baudrate": 115200,
+    "serial_protocol": "esp32_header",
+    "serial_header_byte": 54,
+    "serial_zero_reset": false,
+    "lsl_stream_name": "EmotionParadigmMarkers",
+    "lsl_stream_type": "Markers"
+  },
+  "marker_codes": {
+    "experiment_start": 1,
+    "fixation": 10,
+    "stimulus_neutral": 21,
+    "stimulus_positive": 22,
+    "stimulus_negative": 23,
+    "stimulus_unknown": 24,
+    "rating_onset": 30,
+    "rating_1": 41,
+    "rating_2": 42,
+    "rating_3": 43,
+    "rating_4": 44,
+    "rating_5": 45,
+    "rating_6": 46,
+    "rating_7": 47,
+    "rating_8": 48,
+    "rating_9": 49,
+    "rest": 50,
+    "trial_end": 60,
+    "experiment_end": 99,
+    "block_start_1": 101,
+    "block_start_2": 102,
+    "block_start_3": 103,
+    "block_start_4": 104,
+    "block_start_5": 105,
+    "block_start_6": 106,
+    "block_end_1": 111,
+    "block_end_2": 112,
+    "block_end_3": 113,
+    "block_end_4": 114,
+    "block_end_5": 115,
+    "block_end_6": 116,
+    "aborted": 255
+  },
+  "paradigms": {
+    "1": {
+      "name": "范式1（视频）",
+      "folder": "范式1",
+      "kind": "video",
+      "extensions": [".mp4"],
+      "trial_count": 6,
+      "category_trial_counts": {"positive": 2, "neutral": 2, "negative": 2},
+      "fixation_s": 5.0,
+      "stimulus_s": null,
+      "rest_s": 12.0,
+      "rating": true,
+      "balanced_by_category": true,
+      "category_rules": {
+        "positive": ["^P-"],
+        "negative": ["^N-"],
+        "neutral": ["^Z-"]
+      }
+    },
+    "2": {
+      "name": "范式2（人脸图片）",
+      "folder": "范式2",
+      "kind": "image",
+      "extensions": [".jpg", ".jpeg", ".bmp", ".png"],
+      "trial_count": 30,
+      "category_trial_counts": {"positive": 10, "neutral": 10, "negative": 10},
+      "fixation_s": 5.0,
+      "stimulus_s": 2.0,
+      "rest_s": 0.0,
+      "rating": true,
+      "balanced_by_category": true,
+      "category_rules": {
+        "positive": ["正向"],
+        "negative": ["负向"],
+        "neutral": ["中性"]
+      }
+    },
+    "3": {
+      "name": "范式3（综合图片）",
+      "folder": "范式3",
+      "kind": "image",
+      "extensions": [".jpg", ".jpeg", ".bmp", ".png"],
+      "trial_count": 20,
+      "category_trial_counts": {"positive": 7, "neutral": 6, "negative": 7},
+      "fixation_s": 5.0,
+      "stimulus_s": 5.0,
+      "rest_s": 0.0,
+      "rating": true,
+      "balanced_by_category": true,
+      "category_rules": {
+        "positive": ["正性"],
+        "negative": ["负性"],
+        "neutral": ["中性"]
+      }
+    },
+    "4": {
+      "name": "范式4（CEVS视频）",
+      "folder": "范式4",
+      "kind": "video",
+      "extensions": [".mp4"],
+      "trial_count": 6,
+      "category_trial_counts": {"positive": 2, "neutral": 2, "negative": 2},
+      "fixation_s": 5.0,
+      "stimulus_s": null,
+      "rest_s": 12.0,
+      "rating": true,
+      "balanced_by_category": true,
+      "category_rules": {
+        "positive": ["快乐"],
+        "negative": ["悲伤"],
+        "neutral": ["中性"]
+      }
+    },
+    "5": {
+      "name": "范式5（CFAPS人脸）",
+      "folder": "范式5",
+      "kind": "image",
+      "extensions": [".jpg", ".jpeg", ".bmp", ".png"],
+      "trial_count": 30,
+      "category_trial_counts": {"positive": 10, "neutral": 10, "negative": 10},
+      "fixation_s": 5.0,
+      "stimulus_s": 2.0,
+      "rest_s": 0.0,
+      "rating": true,
+      "balanced_by_category": true,
+      "category_rules": {
+        "positive": ["正性"],
+        "negative": ["负性"],
+        "neutral": ["中性"]
+      }
+    },
+    "6": {
+      "name": "范式6（综合图片）",
+      "folder": "范式6",
+      "kind": "image",
+      "extensions": [".jpg", ".jpeg", ".bmp", ".png"],
+      "trial_count": 19,
+      "category_trial_counts": {"positive": 6, "neutral": 7, "negative": 6},
+      "fixation_s": 5.0,
+      "stimulus_s": 5.0,
+      "rest_s": 0.0,
+      "rating": true,
+      "balanced_by_category": true,
+      "category_rules": {
+        "positive": ["正性"],
+        "negative": ["负性"],
+        "neutral": ["中性"]
+      }
+    }
+  }
+}
