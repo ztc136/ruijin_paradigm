@@ -880,6 +880,53 @@ def make_image_stimulus(win, visual, image_path):
                             units="height", interpolate=True, autoLog=False)
 
 
+def screen_coordinate_size(screen_index):
+    """取得PsychoPy/pyglet窗口坐标所使用的屏幕宽高（已考虑系统缩放）。"""
+    try:
+        import pyglet
+        display = (pyglet.canvas.get_display() if hasattr(pyglet, "canvas")
+                   else pyglet.display.get_display())
+        screens = display.get_screens()
+        screen = screens[int(screen_index)]
+        return int(screen.width), int(screen.height)
+    except Exception as exc:
+        raise RuntimeError("无法读取实验屏{}的分辨率：{}".format(screen_index, exc)) from exc
+
+
+def material_image_size_px(config, screen_size_px=None):
+    """按当前屏幕坐标分辨率及实测物理尺寸换算目标厘米数。"""
+    display = config.get("image_display", {})
+    width_cm = float(display.get("width_cm", 6.5))
+    height_cm = float(display.get("height_cm", 7.5))
+    screen_width_cm = float(display.get("screen_width_cm", 0.0))
+    screen_height_cm = float(display.get("screen_height_cm", 0.0))
+    if min(width_cm, height_cm, screen_width_cm, screen_height_cm) <= 0:
+        raise ValueError("图片尺寸及实验屏物理宽高必须大于0")
+    if screen_size_px is None:
+        screen_size_px = screen_coordinate_size(int(config.get("screen", 0)))
+    screen_width_px, screen_height_px = map(float, screen_size_px)
+    return (int(round(screen_width_px * width_cm / screen_width_cm)),
+            int(round(screen_height_px * height_cm / screen_height_cm)))
+
+
+def make_material_image_stimulus(win, visual, image_path, config):
+    """按实验屏物理尺寸显示；默认严格使用6.5×7.5 cm画布。"""
+    size = material_image_size_px(config)
+    if config.get("image_display", {}).get("preserve_aspect", False):
+        try:
+            from PIL import Image
+            with Image.open(str(image_path)) as image:
+                width, height = image.size
+            scale = min(float(size[0]) / width, float(size[1]) / height)
+            size = (max(1, int(round(width * scale))),
+                    max(1, int(round(height * scale))))
+        except Exception:
+            pass
+    return visual.ImageStim(
+        win, image=str(image_path), size=size,
+        units="pix", interpolate=True, autoLog=False)
+
+
 def show_fixed_image(win, event, core, stimulus, duration, marker, row,
                      onset_field, code, label, metadata=None, after_first_flip=None):
     metadata = metadata or {}
@@ -1101,37 +1148,105 @@ def start_face_camera(config, options, clock, paths):
     return recorder
 
 
-def show_camera_alignment(win, visual, event, core, recorder, auto_continue=False):
-    """实验前显示实时面部取景，确认后进入范式。"""
+def display_screen_count():
+    """返回PsychoPy当前图形后端可见的物理显示屏数量。"""
+    try:
+        import pyglet
+        if hasattr(pyglet, "canvas"):
+            return len(pyglet.canvas.get_display().get_screens())
+        if hasattr(pyglet, "display"):
+            return len(pyglet.display.get_display().get_screens())
+    except Exception:
+        pass
+    return 0
+
+
+def show_camera_alignment(win, visual, event, core, recorder, preview_screen,
+                          experiment_screen, paradigm_name, auto_continue=False,
+                          require_separate=True, windowed_test=False):
+    """正式版在第二屏取景；窗口化测试时在同一屏幕并排显示两个窗口。"""
     from PIL import Image
-    preview = visual.ImageStim(win, units="height", size=(1.20, 0.675),
+    preview_screen = int(preview_screen)
+    experiment_screen = int(experiment_screen)
+    if windowed_test:
+        preview_screen = experiment_screen
+        require_separate = False
+    screen_count = display_screen_count()
+    if require_separate and preview_screen == experiment_screen:
+        raise CameraError("摄像头预览屏不能与实验刺激屏使用同一编号")
+    if screen_count and preview_screen >= screen_count:
+        raise CameraError(
+            "摄像头预览屏编号{}不可用；当前只检测到{}块显示屏。请在Windows中选择“扩展这些显示器”"
+            .format(preview_screen, screen_count))
+
+    preview_win = None
+    try:
+        preview_kwargs = dict(
+            fullscr=not windowed_test, screen=preview_screen,
+            allowGUI=bool(windowed_test), color=(0, 0, 0),
+            colorSpace="rgb255", units="height", waitBlanking=False,
+            autoLog=False)
+        if windowed_test:
+            preview_kwargs["size"] = (540, 405)
+        preview_win = visual.Window(**preview_kwargs)
+        if windowed_test:
+            try:
+                win.winHandle.set_location(10, 80)
+                preview_win.winHandle.set_location(820, 100)
+            except Exception:
+                pass
+    except Exception as exc:
+        raise CameraError(
+            "无法在第{}号屏幕打开摄像头预览；请检查Windows是否设置为扩展显示：{}"
+            .format(preview_screen, exc)) from exc
+
+    preview = visual.ImageStim(preview_win, units="height", size=(1.60, 0.90),
                                autoLog=False, interpolate=True)
+    face_box = visual.Rect(
+        preview_win, width=0.50, height=0.70, pos=(0, 0.03), units="height",
+        lineColor=(0, 255, 80), lineColorSpace="rgb255", lineWidth=5,
+        fillColor=None, autoLog=False)
+    preview_instruction = visual.TextStim(
+        preview_win, text="请将完整头部置于绿色框内，并保持画面清晰、光线均匀",
+        pos=(0, -0.43), height=0.035, color="white", font="SimHei",
+        units="height", wrapWidth=1.60, autoLog=False)
     fps_warning = ("\n警告：实际帧率低于请求值，正式微表情采集前请确认设备能力"
                    if recorder.calibration_fps < recorder.requested_fps * 0.8 else "")
+    location_text = ("右侧摄像头窗口" if windowed_test else "另一块屏幕")
     instruction = visual.TextStim(
-        win, text=("摄像头取景检查：设备{}，{}×{}，实测{:.1f}fps{}\n"
-                   "请确认面部完整、清晰、光线均匀；按空格继续，Esc中止").format(
+        win, text=("{} 即将开始\n\n"
+                   "请查看{}中的画面，调整头部至绿色录像框内。\n"
+                   "设备{}，{}×{}，实测{:.1f}fps{}\n\n"
+                   "调整完成后按空格继续，Esc中止").format(
+                       paradigm_name, location_text,
                        recorder.camera_index, recorder.actual_width,
                        recorder.actual_height, recorder.calibration_fps, fps_warning),
-        pos=(0, 0.43), height=0.035, color="white", font="SimHei",
+        pos=(0, 0), height=0.045, color="white", font="SimHei",
         units="height", wrapWidth=1.55, autoLog=False)
     event.clearEvents()
     auto_clock = core.Clock()
-    while True:
-        recorder.ensure_healthy()
-        frame = recorder.preview_frame()
-        if frame is not None:
-            preview.image = Image.fromarray(frame)
-            preview.draw()
-        instruction.draw()
-        win.flip()
-        if auto_continue and auto_clock.getTime() >= 0.5:
-            return
-        keys = event.getKeys(keyList=["space", "escape"])
-        if "escape" in keys:
-            raise ExperimentAbort()
-        if "space" in keys:
-            return
+    try:
+        while True:
+            recorder.ensure_healthy()
+            frame = recorder.preview_frame()
+            if frame is not None:
+                preview.image = Image.fromarray(frame)
+                preview.draw()
+            face_box.draw()
+            preview_instruction.draw()
+            preview_win.flip()
+            instruction.draw()
+            win.flip()
+            if auto_continue and auto_clock.getTime() >= 0.5:
+                return
+            keys = event.getKeys(keyList=["space", "escape"])
+            if "escape" in keys:
+                raise ExperimentAbort()
+            if "space" in keys:
+                return
+    finally:
+        if preview_win is not None:
+            preview_win.close()
 
 
 TRIAL_FIELDS = [
@@ -1153,7 +1268,7 @@ PLAN_FIELDS = [
 
 def show_block_transition(win, visual, event, core, marker, codes, block, block_index,
                           block_count, estimated_total_s, wait_for_space, auto_continue=False,
-                          demo_mode=False):
+                          demo_mode=False, before_ready=None):
     pid = block["paradigm"]
     title = "第 {}/{} 部分\n{}".format(block_index, block_count, block["config"]["name"])
     if wait_for_space:
@@ -1173,6 +1288,10 @@ def show_block_transition(win, visual, event, core, marker, codes, block, block_
                 raise ExperimentAbort()
             if "space" in keys:
                 break
+
+    # 休息结束后再做头位校准，使校准尽量贴近本区块的正式开始和block marker。
+    if before_ready is not None:
+        before_ready()
 
     ready_text = title + "\n\n即将开始"
     if demo_mode:
@@ -1233,8 +1352,10 @@ def execute_blocks(config, options, blocks, seed, paths, estimated_total_s):
     try:
         marker = MarkerHub(options.marker, options.endpoint, config["marker"],
                            global_clock, paths["events"])
+        experiment_window_size = ((760, 570)
+                                  if options.windowed and options.camera else (1280, 720))
         win = visual.Window(
-            size=(1280, 720), fullscr=not options.windowed,
+            size=experiment_window_size, fullscr=not options.windowed,
             screen=int(config.get("screen", 0)), allowGUI=bool(options.windowed),
             color=config.get("background_rgb255", [185, 183, 183]),
             colorSpace="rgb255", units="height", waitBlanking=True,
@@ -1246,8 +1367,6 @@ def execute_blocks(config, options, blocks, seed, paths, estimated_total_s):
         loading = visual.TextStim(win, text="正在加载实验材料，请稍候……", height=0.055,
                                   color="white", font="SimHei", units="height", autoLog=False)
         camera = start_face_camera(config, options, global_clock, paths)
-        if camera is not None:
-            show_camera_alignment(win, visual, event, core, camera, options.smoke_test)
 
         show_start(win, event, core, helpers["start"], options.smoke_test)
         if camera is not None:
@@ -1269,14 +1388,28 @@ def execute_blocks(config, options, blocks, seed, paths, estimated_total_s):
                 current_prepared[0] = prepare_movie_stimulus(
                     win, visual, stimuli[0], options.test)
             else:
-                current_prepared = [make_image_stimulus(win, visual, item["path"])
+                current_prepared = [make_material_image_stimulus(
+                                    win, visual, item["path"], config)
                                     for item in stimuli]
+
+            camera_alignment = None
+            if camera is not None:
+                camera_config = config.get("camera", {})
+
+                def camera_alignment(pconfig=pconfig, camera_config=camera_config):
+                    show_camera_alignment(
+                        win, visual, event, core, camera,
+                        options.camera_preview_screen, int(config.get("screen", 0)),
+                        pconfig["name"], options.smoke_test,
+                        bool(camera_config.get("require_separate_preview_screen", True)),
+                        options.windowed)
 
             show_block_transition(
                 win, visual, event, core, marker, codes, block, block_index, len(blocks),
                 estimated_total_s, wait_for_space=(block_index > 1),
                 auto_continue=options.smoke_test,
                 demo_mode=options.demo,
+                before_ready=camera_alignment,
             )
 
             for block_trial_index, item in enumerate(stimuli, start=1):
@@ -1434,6 +1567,9 @@ def run_experiment(config, options):
                 integrated_minutes), "单范式调试"],
             "单范式（仅调试使用）": [default_choice] + [c for c in paradigm_choices if c != default_choice],
             "全屏": not options.windowed,
+            "实验屏编号": str(options.experiment_screen),
+            "实验屏物理宽度(cm)": str(options.screen_width_cm),
+            "实验屏物理高度(cm)": str(options.screen_height_cm),
             "打标方式": [options.marker] + [m for m in [
                 "log", "lsl", "serial", "parallel", "serial+lsl", "parallel+lsl"
             ] if m != options.marker],
@@ -1446,6 +1582,7 @@ def run_experiment(config, options):
             "摄像头录像": bool(options.camera or config.get("camera", {}).get(
                 "enabled_by_default", True)),
             "摄像头编号": str(options.camera_index),
+            "摄像头预览屏编号": str(options.camera_preview_screen),
             "摄像头分辨率": "{}x{}".format(options.camera_width, options.camera_height),
             "摄像头帧率": str(options.camera_fps),
         }
@@ -1457,6 +1594,9 @@ def run_experiment(config, options):
         options.integrated = str(info["实验模式"]).startswith("整合实验")
         options.paradigm = str(info["单范式（仅调试使用）"]).split(" -", 1)[0]
         options.windowed = not bool(info["全屏"])
+        options.experiment_screen = int(str(info["实验屏编号"]).strip())
+        options.screen_width_cm = float(str(info["实验屏物理宽度(cm)"]).strip())
+        options.screen_height_cm = float(str(info["实验屏物理高度(cm)"]).strip())
         options.marker = str(info["打标方式"])
         options.endpoint = str(info["端口或地址"])
         seed_text = str(info["随机种子（留空则自动）"]).strip()
@@ -1465,6 +1605,7 @@ def run_experiment(config, options):
         options.test = bool(info["工程短测（减少素材并缩短时长）"])
         options.camera = bool(info["摄像头录像"])
         options.camera_index = int(str(info["摄像头编号"]).strip())
+        options.camera_preview_screen = int(str(info["摄像头预览屏编号"]).strip())
         resolution_match = re.fullmatch(
             r"\s*(\d+)\s*[xX×]\s*(\d+)\s*", str(info["摄像头分辨率"]))
         if not resolution_match:
@@ -1473,6 +1614,14 @@ def run_experiment(config, options):
         options.camera_height = int(resolution_match.group(2))
         options.camera_fps = float(str(info["摄像头帧率"]).strip())
 
+    if options.experiment_screen < 0:
+        raise ValueError("实验屏编号不得小于0")
+    if options.screen_width_cm <= 0 or options.screen_height_cm <= 0:
+        raise ValueError("实验屏物理宽度和高度必须大于0")
+    config["screen"] = options.experiment_screen
+    config.setdefault("image_display", {})["screen_width_cm"] = options.screen_width_cm
+    config["image_display"]["screen_height_cm"] = options.screen_height_cm
+
     if options.demo:
         options.integrated = True
         options.test = True
@@ -1480,6 +1629,8 @@ def run_experiment(config, options):
     if options.camera:
         if options.camera_index < 0:
             raise ValueError("摄像头编号不得小于0")
+        if options.camera_preview_screen < 0:
+            raise ValueError("摄像头预览屏编号不得小于0")
         if options.camera_width < 160 or options.camera_height < 120:
             raise ValueError("摄像头分辨率过小")
         if options.camera_fps <= 0:
@@ -1553,8 +1704,11 @@ def run_experiment(config, options):
     try:
         marker = MarkerHub(options.marker, options.endpoint, config["marker"],
                            global_clock, paths["events"])
+        experiment_window_size = ((760, 570)
+                                  if options.windowed and options.camera else (1280, 720))
         win = visual.Window(
-            size=(1280, 720), fullscr=not options.windowed, screen=int(config.get("screen", 0)),
+            size=experiment_window_size, fullscr=not options.windowed,
+            screen=int(config.get("screen", 0)),
             allowGUI=bool(options.windowed), color=config.get("background_rgb255", [185, 183, 183]),
             colorSpace="rgb255", units="height", waitBlanking=True,
         )
@@ -1565,7 +1719,13 @@ def run_experiment(config, options):
                                   color="white", font="SimHei", units="height", autoLog=False)
         camera = start_face_camera(config, options, global_clock, paths)
         if camera is not None:
-            show_camera_alignment(win, visual, event, core, camera, options.smoke_test)
+            camera_config = config.get("camera", {})
+            show_camera_alignment(
+                win, visual, event, core, camera,
+                options.camera_preview_screen, int(config.get("screen", 0)),
+                pconfig["name"], options.smoke_test,
+                bool(camera_config.get("require_separate_preview_screen", True)),
+                options.windowed)
         loading.draw()
         win.flip()
         if pconfig["kind"] == "video":
@@ -1574,7 +1734,8 @@ def run_experiment(config, options):
             prepared_stimuli = [None] * len(stimuli)
             prepared_stimuli[0] = prepare_movie_stimulus(win, visual, stimuli[0], options.test)
         else:
-            prepared_stimuli = [make_image_stimulus(win, visual, item["path"])
+            prepared_stimuli = [make_material_image_stimulus(
+                                win, visual, item["path"], config)
                                 for item in stimuli]
 
         show_start(win, event, core, helpers["start"], options.smoke_test)
@@ -1714,10 +1875,24 @@ def parse_args(argv=None):
                         help="串口COM3/auto，或并口地址0x0378")
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--windowed", action="store_true")
-    camera_defaults = load_config().get("camera", {})
+    config_defaults = load_config()
+    camera_defaults = config_defaults.get("camera", {})
+    display_defaults = config_defaults.get("image_display", {})
+    parser.add_argument("--experiment-screen", type=int,
+                        default=int(config_defaults.get("screen", 0)),
+                        help="刺激呈现屏编号")
+    parser.add_argument("--screen-width-cm", type=float,
+                        default=float(display_defaults.get("screen_width_cm", 34.0)),
+                        help="实验屏可视区域物理宽度")
+    parser.add_argument("--screen-height-cm", type=float,
+                        default=float(display_defaults.get("screen_height_cm", 22.0)),
+                        help="实验屏可视区域物理高度")
     parser.add_argument("--camera", action="store_true", help="录制被试面部视频")
     parser.add_argument("--camera-index", type=int,
                         default=int(camera_defaults.get("index", 0)))
+    parser.add_argument("--camera-preview-screen", type=int,
+                        default=int(camera_defaults.get("preview_screen", 1)),
+                        help="每个范式开始前显示实时取景的第二屏编号")
     parser.add_argument("--camera-width", type=int,
                         default=int(camera_defaults.get("width", 1280)))
     parser.add_argument("--camera-height", type=int,
@@ -1738,6 +1913,19 @@ def main(argv=None):
     if options.validate or options.self_test:
         errors = validate_assets(config, print_report=True)
         if not errors and options.self_test:
+            expected_image_size = (
+                int(round(screen_coordinate_size(int(config.get("screen", 0)))[0] *
+                          float(config["image_display"]["width_cm"]) /
+                          float(config["image_display"]["screen_width_cm"]))),
+                int(round(screen_coordinate_size(int(config.get("screen", 0)))[1] *
+                          float(config["image_display"]["height_cm"]) /
+                          float(config["image_display"]["screen_height_cm"]))))
+            assert material_image_size_px(config) == expected_image_size
+            camera_config = config.get("camera", {})
+            if camera_config.get("require_separate_preview_screen", True):
+                assert int(camera_config.get("preview_screen", 1)) != int(config.get("screen", 0))
+            print("  显示配置测试通过：当前图片尺寸{}×{}屏幕坐标像素，摄像头预览屏与实验屏分离".format(
+                expected_image_size[0], expected_image_size[1]))
             root = resolve_asset_root(config)
             for pid, pconfig in config["paradigms"].items():
                 stimuli = discover_stimuli(root, pid, pconfig)

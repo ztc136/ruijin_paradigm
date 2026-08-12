@@ -2,12 +2,21 @@
   "asset_root": "../情绪范式素材",
   "background_rgb255": [185, 183, 183],
   "screen": 0,
+  "image_display": {
+    "width_cm": 6.5,
+    "height_cm": 7.5,
+    "screen_width_cm": 34.0,
+    "screen_height_cm": 22.0,
+    "preserve_aspect": false
+  },
   "camera": {
     "enabled_by_default": true,
     "index": 0,
     "width": 1280,
     "height": 720,
     "fps": 60,
+    "preview_screen": 1,
+    "require_separate_preview_screen": true,
     "codec": "MJPG",
     "minimum_acceptable_fps": 25,
     "minimum_free_disk_gb": 40
