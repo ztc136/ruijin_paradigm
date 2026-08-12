@@ -19,7 +19,7 @@
     "require_separate_preview_screen": true,
     "codec": "MJPG",
     "minimum_acceptable_fps": 25,
-    "minimum_free_disk_gb": 40
+    "minimum_free_disk_gb": 10
   },
   "integrated_session": {
     "enabled_by_default": true,

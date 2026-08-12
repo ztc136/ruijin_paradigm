@@ -515,7 +515,7 @@ class FaceCameraRecorder:
     def start(self):
         cv2 = self.cv2
         self.free_disk_start_gb = shutil.disk_usage(self.video_path.parent).free / (1024 ** 3)
-        minimum_free_gb = float(self.config.get("minimum_free_disk_gb", 20.0))
+        minimum_free_gb = float(self.config.get("minimum_free_disk_gb", 10.0))
         if self.free_disk_start_gb < minimum_free_gb:
             raise CameraError("录像磁盘剩余{:.1f}GB，低于最低要求{:.1f}GB".format(
                 self.free_disk_start_gb, minimum_free_gb))
@@ -1563,9 +1563,9 @@ def run_experiment(config, options):
         info = {
             "被试编号": options.participant,
             "场次": options.session,
-            "实验模式": ["整合实验（推荐，范式1–3，自动约{}分钟）".format(
-                integrated_minutes), "单范式调试"],
-            "单范式（仅调试使用）": [default_choice] + [c for c in paradigm_choices if c != default_choice],
+            "实验模式": ["整合实验（范式1–3，自动约{}分钟）".format(
+                integrated_minutes), "单范式实验/调试"],
+            "单范式选择": [default_choice] + [c for c in paradigm_choices if c != default_choice],
             "全屏": not options.windowed,
             "实验屏编号": str(options.experiment_screen),
             "实验屏物理宽度(cm)": str(options.screen_width_cm),
@@ -1591,8 +1591,9 @@ def run_experiment(config, options):
             return None
         options.participant = str(info["被试编号"]).strip() or "anonymous"
         options.session = str(info["场次"]).strip() or "1"
-        options.integrated = str(info["实验模式"]).startswith("整合实验")
-        options.paradigm = str(info["单范式（仅调试使用）"]).split(" -", 1)[0]
+        selected_experiment_mode = str(info["实验模式"])
+        options.integrated = "单范式" not in selected_experiment_mode
+        options.paradigm = str(info["单范式选择"]).split(" -", 1)[0]
         options.windowed = not bool(info["全屏"])
         options.experiment_screen = int(str(info["实验屏编号"]).strip())
         options.screen_width_cm = float(str(info["实验屏物理宽度(cm)"]).strip())
@@ -1623,8 +1624,14 @@ def run_experiment(config, options):
     config["image_display"]["screen_height_cm"] = options.screen_height_cm
 
     if options.demo:
-        options.integrated = True
         options.test = True
+
+    mode_description = ("整合范式1–3" if options.integrated
+                        else "单范式{}".format(options.paradigm))
+    version_description = "流程演示版" if options.demo else "正式实验"
+    print("运行选择：{} / {} / marker={} / 摄像头={}".format(
+        mode_description, version_description, options.marker,
+        "开启" if options.camera else "关闭"))
 
     if options.camera:
         if options.camera_index < 0:
@@ -1672,7 +1679,7 @@ def run_experiment(config, options):
     pconfig = config["paradigms"][options.paradigm]
     rng = random.Random(seed)
     all_stimuli = discover_stimuli(asset_root, options.paradigm, pconfig)
-    if options.test:
+    if options.test and not options.demo:
         trial_count = min(2, int(pconfig["trial_count"]))
         stimuli = sample_stimuli(all_stimuli, trial_count, rng,
                                   bool(pconfig.get("balanced_by_category", True)))
@@ -1682,6 +1689,13 @@ def run_experiment(config, options):
     else:
         stimuli = sample_stimuli(all_stimuli, int(pconfig["trial_count"]), rng,
                                   bool(pconfig.get("balanced_by_category", True)))
+    single_counts = {category: sum(item["category"] == category for item in stimuli)
+                     for category in ("positive", "neutral", "negative")}
+    print("单范式{}计划：{} trials，正/中/负={}/{}/{}，{}".format(
+        options.paradigm, len(stimuli), single_counts["positive"],
+        single_counts["neutral"], single_counts["negative"],
+        "工程短测" if options.test and not options.demo else
+        ("流程演示版" if options.demo else "正式素材与正式时长")))
     paths = make_session_paths(options.participant, options.paradigm, options.session,
                                options.camera)
 
@@ -1913,6 +1927,7 @@ def main(argv=None):
     if options.validate or options.self_test:
         errors = validate_assets(config, print_report=True)
         if not errors and options.self_test:
+            assert float(config.get("camera", {}).get("minimum_free_disk_gb", 0)) == 10.0
             expected_image_size = (
                 int(round(screen_coordinate_size(int(config.get("screen", 0)))[0] *
                           float(config["image_display"]["width_cm"]) /
